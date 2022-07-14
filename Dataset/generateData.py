@@ -1,6 +1,8 @@
 import os
+import glob
 import random
 import numpy as np
+import scipy.ndimage
 from tqdm import tqdm
 import imageio
 from PIL import Image as PILImage, ImageDraw
@@ -42,6 +44,7 @@ class Image():
             shape = random.choice(shapes)
             shape.generateMasks()
             shape.add_to_image(self.image1, self.image2, self.flow)
+            shape.add_features(self.image1, self.image2)
 
 class Shape():
 
@@ -52,6 +55,7 @@ class Shape():
         self.indices = np.indices(dims).transpose(1, 2, 0)
         self.indicesT = None
         self.w, self.h = dims
+        self.features = Feature()
 
     def sample_color(self, type="int"):
         if type == "int":
@@ -88,6 +92,13 @@ class Shape():
 
         return image1, image2, flow
 
+    def add_features(self, image1, image2):
+        feature_mask = self.features.get_feature_mask()
+        color = self.sample_color()
+        valid_indices = self.indices[self.mask1]
+        position = random.choice(valid_indices)
+
+        print("AV")
 
 class Circle(Shape):
     def __init__(self, dims):
@@ -153,11 +164,29 @@ class Polygon(Shape):
         self.mask2 = np.array(img, dtype=bool)
         img.close()
 
+class Feature:
+
+    def __init__(self):
+        self.masks = []
+        self.init_masks()
+
+    def init_masks(self):
+        for filename in glob.glob('Shapes/*.png'):
+            im = PILImage.open(filename)
+            self.masks.append(np.alltrue(np.array(im) == [0,0,0], axis=2))
+
+    def get_feature_mask(self):
+        shape = random.choice(self.masks)
+        rotation = np.random.randint(0,359)
+        shape_r = scipy.ndimage.rotate(shape, rotation, reshape=True)
+
+        return shape_r
+
 
 path = "./Data"
 size = (256,256)
 
-for i in tqdm(range(100)):
+for i in tqdm(range(1)):
     drawImage(os.path.join(path, f'{str(i).zfill(3)}_img1.ppm'),
               os.path.join(path, f'{str(i).zfill(3)}_img2.ppm'),
               os.path.join(path, f'{str(i).zfill(3)}_flow.flo'),
