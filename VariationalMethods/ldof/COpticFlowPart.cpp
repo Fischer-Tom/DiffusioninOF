@@ -1,6 +1,6 @@
 #include "COpticFlowPart.h"
 #include <CFilter.h>
-
+#include <cstring>
 // Brox et al. CVPR 2009: geometric constraints from keypoint matching ---------
 
 // diffusivity

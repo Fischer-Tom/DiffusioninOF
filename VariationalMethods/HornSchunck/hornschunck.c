@@ -790,9 +790,9 @@ void flow
       long     ny,          /* image dimension in y direction */ 
       float    hx,          /* pixel size in x direction */
       float    hy,          /* pixel size in y direction */
-      float    **fx,        /* x derivative of image */
-      float    **fy,        /* y derivative of image */
-      float    **fz,        /* z derivative of image */
+      float    ***fx,        /* x derivative of image */
+      float    ***fy,        /* y derivative of image */
+      float    ***fz,        /* z derivative of image */
       float    alpha,       /* smoothness weight */
       float    **u,         /* x component of optic flow */
       float    **v)         /* v component of optic flow */
@@ -830,7 +830,7 @@ for (i=1; i<=nx; i++)
  SUPPLEMENT CODE
 */
 help = 1.0/alpha;
-float usum, vsum, tempu, tempv;
+float usum, vsum, tempu, tempv, tempdx, tempdy, tempdxx, tempdyy;
 int k, k2, l, l2;
 for(i=1;i<=nx;i++){
     for(j=1;j<=ny;j++){
@@ -857,10 +857,17 @@ for(i=1;i<=nx;i++){
         /**
          * Iteration step at pixel (i,j)
          */
-        tempu = (alpha/(hx*hy))*usum - fx[i][j]*(fy[i][j]*v1[i][j]+fz[i][j]);
-        u[i][j] = tempu/(alpha/(hx*hy) * nn + fx[i][j]*fx[i][j]);
-        tempv = (alpha/(hx*hy))*vsum  - fy[i][j]*(fx[i][j]*u1[i][j]+fz[i][j]);
-        v[i][j] = tempv/(alpha/(hx*hy) * nn + fy[i][j]*fy[i][j]);
+        tempdx = tempdy = tempdxx = tempdyy = 0;
+        for (k=0; k<=2; k++){
+            tempdx = tempdx + fx[k][i][j]*(fy[k][i][j]*v1[i][j]+fz[k][i][j]);
+            tempdy = tempdy + fy[k][i][j]*(fx[k][i][j]*u1[i][j]+fz[k][i][j]);
+            tempdxx = tempdxx + fx[k][i][j]*fx[k][i][j];
+            tempdyy = tempdyy + fy[k][i][j]*fy[k][i][j];
+         }
+        tempu = (alpha/(hx*hy))*usum - tempdx;
+        u[i][j] = tempu/(alpha/(hx*hy) * nn + tempdxx);
+        tempv = (alpha/(hx*hy))*vsum  - tempdy;
+        v[i][j] = tempv/(alpha/(hx*hy) * nn + tempdyy);
     }
 }
 
@@ -929,7 +936,7 @@ char   in[80];               /* for reading data */
 char   outFlo[80];              /* for reading data */
 char   outPPM[80];              /* for reading data */
 float  ***f1, ***f2;         /* images */
-float  **fx, **fy, **fz;     /* image derivatives */
+float  ***fx, ***fy, ***fz;     /* image derivatives */
 float  **u, **v;             /* optic flow components */
 float  **w;                  /* optic flow magnitude */
 float  ***colour;            /* colour representation of optic flow */
@@ -984,9 +991,9 @@ printf ("\n");
 /* ---- initializations ---- */
 
 /* allocate storage for image derivatives fx, fy, fz */
-alloc_matrix (&fx, nx+2, ny+2);
-alloc_matrix (&fy, nx+2, ny+2);
-alloc_matrix (&fz, nx+2, ny+2);
+alloc_cubix (&fx, nc, nx+2, ny+2);
+alloc_cubix (&fy, nc, nx+2, ny+2);
+alloc_cubix (&fz, nc, nx+2, ny+2);
 
 /* calculate image derivatives fx, fy and fz */
 dummies (f1, nx, ny);
@@ -998,11 +1005,11 @@ for (i=1; i<=nx; i++)
  for (j=1; j<=ny; j++)
   for (k=0; k<=2; k++)
      {
-     fx[i][j] = (f1[k][i+1][j] - f1[k][i-1][j] + f2[k][i+1][j] - f2[k][i-1][j])
+     fx[k][i][j] = (f1[k][i+1][j] - f1[k][i-1][j] + f2[k][i+1][j] - f2[k][i-1][j])
                 / (4.0f * hx);
-     fy[i][j] = (f1[k][i][j+1] - f1[k][i][j-1] + f2[k][i][j+1] - f2[k][i][j-1])
+     fy[k][i][j] = (f1[k][i][j+1] - f1[k][i][j-1] + f2[k][i][j+1] - f2[k][i][j-1])
                 / (4.0f * hy);
-     fz[i][j] = f2[k][i][j] - f1[k][i][j];   /* frame distance 1 assumed */
+     fz[k][i][j] = f2[k][i][j] - f1[k][i][j];   /* frame distance 1 assumed */
      }
  
 /* allocate storage */
@@ -1057,9 +1064,9 @@ printf ("output image %s successfully written\n\n", outFlo);
 
 disalloc_cubix (f1, nc, nx+2, ny+2);
 disalloc_cubix (f2, nc, nx+2, ny+2);
-disalloc_matrix (fx, nx+2, ny+2);
-disalloc_matrix (fy, nx+2, ny+2);
-disalloc_matrix (fz, nx+2, ny+2);
+disalloc_cubix (fx, nc, nx+2, ny+2);
+disalloc_cubix (fy, nc, nx+2, ny+2);
+disalloc_cubix (fz, nc,nx+2, ny+2);
 disalloc_matrix (u,  nx+2, ny+2);
 disalloc_matrix (v,  nx+2, ny+2);
 disalloc_matrix (w,  nx+2, ny+2);

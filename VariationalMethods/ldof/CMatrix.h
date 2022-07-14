@@ -14,6 +14,7 @@
 #include <fstream>
 #include <string>
 #include <queue>
+#include <cstring>
 #include <stack>
 #ifdef GNU_COMPILER
   #include <strstream>

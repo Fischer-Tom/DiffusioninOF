@@ -1,4 +1,5 @@
 #include <string>
+#include <cstring>
 #include <vector>
 #include <ctime>
 #include "CTensor.h"
@@ -131,6 +132,11 @@ void runFlow(CTensor<float>& aImage1, CTensor<float>& aImage2, CTensor<float>& a
   CMatrix<float> aCornerness;
   computeConfidence(aImage1,aImage2,aCornerness);
   CMatrix<float> aEnergy1(aXSize,aYSize,0);
+
+  // compute Visualization of HOG results
+  CTensor<float> aMatching;
+  aMatching.setSize(aImage1.xSize(), aImage2.ySize(),2);
+
   float aAverage = 0.0f;
   int i2 = 0;
   for (int z = 0; z < aHOG1.zSize(); z++)
@@ -239,15 +245,23 @@ void runFlow(CTensor<float>& aImage1, CTensor<float>& aImage2, CTensor<float>& a
             bestDistBack = dist; bestXBack = bx; bestYBack = by;
           }
         }
+
+
       // Consistency check passed
       if (fabs(bestXBack-ax) <= 1 && fabs(bestYBack-ay) <= 1) {
         aGeoU(ax,ay,0) = bestX-ax;
         aGeoV(ax,ay,0) = bestY-ay;
         aConfidence(ax,ay,0) = (best2Dist-bestDist)/(bestDist+1e-6);
+        aMatching(ax,ay,0) = bestX-ax;
+        aMatching(ax,ay,1) = bestY-ay;
       }
   }
+  CTensor<float> aMatchingImage(aImage1.xSize(),aImage1.ySize(),3);
+  COpticFlow::flowToImage(aMatching,aMatchingImage,8);
+  aMatchingImage.writeToPPM("BestMatch.ppm");
+  COpticFlow::writeMiddlebury(aMatching, "Bestmatch.flo");
   // Compute variational flow
-  COpticFlow::warpingGeometric(aImage1,aImage2,aResult,aGeoU,aGeoV,aConfidence,0,0.0f,alpha,beta,gamma,0,0.95,5,5,1.85);
+  //COpticFlow::warpingGeometric(aImage1,aImage2,aResult,aGeoU,aGeoV,aConfidence,0,0.0f,alpha,beta,gamma,0,0.95,5,5,1.85);
 }
 
 int main(int argc, char** args) {
