@@ -7,6 +7,9 @@ from tqdm import tqdm
 import imageio
 from PIL import Image as PILImage, ImageDraw
 import flow_vis
+from scipy.signal import convolve2d
+import cv2
+
 
 def writeFlow(name, flow):
     f = open(name, 'wb')
@@ -15,16 +18,17 @@ def writeFlow(name, flow):
     flow = flow.astype(np.float32)
     flow.tofile(f)
 
-def drawImage(name1, name2, flowname, edgeName, flowColorname=None):
 
+def drawImage(name1, name2, flowname, edgeName, flowColorname=None):
     image = Image(size)
     image.populate()
 
     imageio.imwrite(name1, image.image1.astype(np.uint8))
     imageio.imwrite(name2, image.image2.astype(np.uint8))
-    #imageio.imwrite(edgeName, edgeField.astype(np.uint8))
+    # imageio.imwrite(edgeName, edgeField.astype(np.uint8))
     imageio.imwrite(flowColorname, flow_vis.flow_to_color(image.flow))
     writeFlow(flowname, image.flow)
+
 
 class Image():
 
@@ -38,13 +42,15 @@ class Image():
         self.edgeField = np.zeros((flow_size[0], flow_size[1]), dtype=np.int8)
 
     def populate(self):
-        shapes = [Polygon(self.dims),Polygon(self.dims),Polygon(self.dims),Circle(self.dims)]
-        elements = np.random.randint(2,6)
+        shapes = [Polygon(self.dims)]
+        elements = np.random.randint(2, 6)
+        elements = 1
         for _ in range(elements):
             shape = random.choice(shapes)
             shape.generateMasks()
             shape.add_to_image(self.image1, self.image2, self.flow)
-            shape.add_features(self.image1, self.image2)
+            shape.add_features(self.image1, self.image2, self.flow)
+
 
 class Shape():
 
@@ -71,7 +77,7 @@ class Shape():
         signs = np.random.rand(2)
         signs[signs > 0.5] = 1
         signs[signs != 1] = -1
-        t = np.array(signs*( 10*np.random.randn(2) + 25), dtype=np.int32)
+        t = np.array(signs * (10 * np.random.randn(2) + 25), dtype=np.int32)
         translation = np.array([t[0] + m1[0] - m1[0] * np.cos(angle) + m1[1] * np.sin(angle),
                                 t[1] + m1[1] - m1[0] * np.sin(angle) - m1[1] * np.cos(angle),
                                 1.])
@@ -83,8 +89,8 @@ class Shape():
 
         color = self.sample_color()
 
-        flow_field = self.indices - self.indicesT
-        flow_field = flow_field.astype(np.int32)
+        self.flow_field = self.indices - self.indicesT
+        flow_field = self.flow_field.astype(np.int32)
 
         image1[self.mask1] = color
         image2[self.mask2] = color
@@ -92,20 +98,35 @@ class Shape():
 
         return image1, image2, flow
 
-    def add_features(self, image1, image2):
+    def add_features(self, image1, image2, flow):
+        w_i, h_i, _ = image1.shape
         feature_mask = self.features.get_feature_mask()
         color = self.sample_color()
         valid_indices = self.indices[self.mask1]
-        position = random.choice(valid_indices)
+        o_x, o_y = random.choice(valid_indices)
+        w, h = feature_mask.shape
+        odd = w % 2
+        if odd:
+            ind = self.indices[o_x - w // 2 - 1:o_x + w // 2, o_y - h // 2 - 1:o_y + h // 2][feature_mask]
+            ind = (ind[:, 0], ind[:, 1])
+            image1[ind] = color
 
-        print("AV")
+        else:
+            ind = self.indices[o_x - w // 2:o_x + w // 2, o_y - h // 2:o_y + h // 2][feature_mask]
+            ind = (ind[:, 0], ind[:, 1])
+            image1[ind] = color
+
+        warped = cv2.remap(image1, flow, None, cv2.INTER_LINEAR)
+        image2[self.mask2] = warped[self.mask2]
+        return image1, warped
+
 
 class Circle(Shape):
     def __init__(self, dims):
         super().__init__(dims)
 
     def sample_radius(self):
-        return np.random.randint(1, self.w//5)
+        return np.random.randint(1, self.w // 5)
 
     def sample_center(self):
         return np.random.randint(0, self.w, (2,), dtype=np.int32)
@@ -113,7 +134,7 @@ class Circle(Shape):
     def generateMasks(self):
         center = self.sample_center()
         r = self.sample_radius()
-        while np.any(center-r <0) or np.any(r+center>self.w):
+        while np.any(center - r < 0) or np.any(r + center > self.w):
             center = self.sample_center()
             r = self.sample_radius()
         norm = np.linalg.norm(self.indices - center, axis=2)
@@ -125,10 +146,11 @@ class Circle(Shape):
         tran_indices_hom = np.einsum('ij,klj->kli', self.M, indices_image_hom)
         self.indicesT = (tran_indices_hom[:, :, :2] / tran_indices_hom[:, :, [-1]]).astype(np.int32)
         self.indices = self.indices.reshape((self.w, self.w, 2))
-        new_center = self.indicesT[center[0],center[1],:]
+        new_center = self.indicesT[center[0], center[1], :]
         norm = np.linalg.norm(self.indices - new_center, axis=2)
         self.mask2 = np.full((self.w, self.h), False)
         self.mask2[np.where(norm < r)] = True
+
 
 class Polygon(Shape):
     def __init__(self, dims):
@@ -141,9 +163,8 @@ class Polygon(Shape):
         return points
 
     def generateMasks(self):
-
         points = self.sample_points()
-        img = PILImage.new('L', (self.w,self.h),0)
+        img = PILImage.new('L', (self.w, self.h), 0)
         ImageDraw.Draw(img).polygon(list(points.flatten()), outline=1, fill=1)
         self.mask1 = np.array(img, dtype=bool)
         img.close()
@@ -154,7 +175,6 @@ class Polygon(Shape):
         self.indicesT = (tran_indices_hom[:, :, :2] / tran_indices_hom[:, :, [-1]]).astype(np.int32)
         self.indices = self.indices.reshape((self.w, self.w, 2))
 
-
         ones = np.ones_like(points[:, [0]])
         points_image_hom = np.append(points, ones, axis=1)
         tran_points_hom = np.einsum('ij,lj->li', self.M, points_image_hom)
@@ -164,6 +184,7 @@ class Polygon(Shape):
         self.mask2 = np.array(img, dtype=bool)
         img.close()
 
+
 class Feature:
 
     def __init__(self):
@@ -171,20 +192,28 @@ class Feature:
         self.init_masks()
 
     def init_masks(self):
-        for filename in glob.glob('Shapes/*.png'):
+        for filename in glob.glob('Features/*.png'):
             im = PILImage.open(filename)
-            self.masks.append(np.alltrue(np.array(im) == [0,0,0], axis=2))
+            mask = np.alltrue(np.array(im) != [0, 0, 0], axis=2)
+            self.masks.append(mask)
 
     def get_feature_mask(self):
         shape = random.choice(self.masks)
-        rotation = np.random.randint(0,359)
+        rotation = np.random.randint(0, 359)
         shape_r = scipy.ndimage.rotate(shape, rotation, reshape=True)
 
-        return shape_r
+        w, h = shape_r.shape
+        size = np.random.randint(30, 40)
+        n = w // size
+        kernel = np.ones((n, n))
+        convolved = convolve2d(shape_r, kernel, mode='valid')
+        downsampled_shape = convolved[::n, ::n] / n
+
+        return downsampled_shape > 0
 
 
 path = "./Data"
-size = (256,256)
+size = (512, 512)
 
 for i in tqdm(range(1)):
     drawImage(os.path.join(path, f'{str(i).zfill(3)}_img1.ppm'),
@@ -192,5 +221,3 @@ for i in tqdm(range(1)):
               os.path.join(path, f'{str(i).zfill(3)}_flow.flo'),
               os.path.join(path, f'{str(i).zfill(3)}_flow.ppm'),
               os.path.join(path, f'{str(i).zfill(3)}_flow.ppm'))
-
-
