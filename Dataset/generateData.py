@@ -7,9 +7,12 @@ from tqdm import tqdm
 import imageio
 from PIL import Image as PILImage, ImageDraw
 import flow_vis
-from scipy.signal import convolve2d
 import cv2
 import oflibnumpy as of
+
+SCALING = True
+path = "./Data"
+size = (1024, 1024)
 
 
 def writeFlow(name, flow):
@@ -41,7 +44,7 @@ class Image():
 
     def populate(self):
         shapes = [Polygon(self.dims),Circle(self.dims)]
-        elements = np.random.randint(2, 6) * 4
+        elements = np.random.randint(10, 30)
         for _ in range(elements):
             shape = random.choice(shapes)
             shape.generateMasks()
@@ -69,13 +72,20 @@ class Shape():
     def sample_flow(self, points):
         m1 = np.mean(points, axis=0, dtype=int)
 
-        angle = np.random.randint(-45, 45, dtype=int)
-        signs = np.random.rand(2)
-        signs[signs > 0.5] = 1
-        signs[signs != 1] = -1
-        t = np.array(signs * (10 * np.random.randn(2) + 25), dtype=int)
-
-        flow = of.Flow.from_transforms([['rotation', int(m1[0]), int(m1[1]), angle],['translation',int(t[0]),int(t[1])]], (self.w, self.h), 't')
+        angle = np.random.randint(-25, 25, dtype=int)
+        t = np.array(8 * np.random.randn(2), dtype=int)
+        print(t)
+        if SCALING:
+            sc =(0.25*np.random.randn() + 1)
+            sc = 1. if sc<0 else sc
+            flow = of.Flow.from_transforms([['rotation', int(m1[0]), int(m1[1]), angle],
+                                        ['translation',int(t[0]),int(t[1])],
+                                        ['scaling', int(m1[0]),int(m1[1]), sc]],
+                                       (self.w, self.h), 't')
+        else:
+            flow = of.Flow.from_transforms([['rotation', int(m1[0]), int(m1[1]), angle],
+                                        ['translation',int(t[0]),int(t[1])]],
+                                       (self.w, self.h), 't')
         return flow
 
     def add_to_image(self, image1, image2, flow, flow_features):
@@ -84,7 +94,7 @@ class Shape():
 
         empty_image = np.zeros_like(image1)
         empty_image[self.mask1] = color
-        warped_image = self.flow_field.apply(empty_image).astype(np.uint8)
+        warped_image = self.flow_field.apply(empty_image)
         mask2 = warped_image == color
         filled_image, flow_features = self.add_features(empty_image, flow_features)
 
@@ -95,7 +105,7 @@ class Shape():
 
         flow[self.mask1] = self.flow_field.vecs[self.mask1]
 
-        if np.count_nonzero(self.mask1) < (35*35):
+        if np.count_nonzero(self.mask1) < (25*25):
             flow_features[self.mask1] = True
         return image1, image2, flow, flow_features
 
@@ -206,16 +216,14 @@ class Feature:
         rotation = np.random.randint(0, 359)
         shape_r = scipy.ndimage.rotate(shape, rotation, reshape=True,output=np.int16)
 
-        size = np.random.randint(20, 30)
+        size = np.random.randint(10, 20)
         downsampled_shape = cv2.resize(shape_r,dsize=(size, size),interpolation = cv2.INTER_AREA ) > 0
 
         return downsampled_shape
 
 
-path = "./Data"
-size = (1024, 1024)
 
-for i in tqdm(range(0, 20, 4)):
+for i in tqdm(range(0, 4, 4)):
     image, feature_masked = drawImage()
     x_dim = [(0, size[0]//2),(size[0]//2, size[0]), (0, size[0]//2), (size[0]//2, size[0])]
     y_dim = [(0, size[1]//2),(0, size[1]//2),(size[1]//2, size[1]),(size[1]//2, size[1])]
